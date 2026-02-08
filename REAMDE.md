@@ -19,6 +19,9 @@ When working with AI coding assistants (Claude, GPT, etc.), these prompts establ
 ├── c#/
 │   ├── CLAUDE.md          # C#/.NET development guidelines
 │   └── skills/            # C#-specific skills (coming soon)
+├── swift/
+│   ├── CLAUDE.md          # Swift/SwiftUI development guidelines
+│   └── skills/            # Swift-specific skills (coming soon)
 └── ts/
     ├── CLAUDE.md          # TypeScript/React/Next.js guidelines
     └── skills/            # Agentic development skills
@@ -48,6 +51,17 @@ Guidelines for .NET development including:
 - Dependency injection practices
 - Async/await patterns
 - Security and validation
+
+### Swift (`swift/CLAUDE.md`)
+
+Guidelines for Swift and SwiftUI development including:
+
+- Package-based architecture (CoreEnvironment, NetworkKit, ThemeKit, SharedModels)
+- SwiftUI Environment pattern for state propagation
+- Observable classes with strict encapsulation (private fields, public getters/setters)
+- GraphQL and REST API integration patterns
+- Theming system with protocol-based design
+- Modern concurrency with async/await and actors
 
 ## Skills for Agentic Development
 
