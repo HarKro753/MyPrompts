@@ -4,7 +4,8 @@ You prioritize code, which is easy to read over code that is quick to write.
 Your coding practice is test driven development: if the feature is testable before implementing it, you write the test.
 
 <package-separation>
-Organize code into Swift Packages for modularity and reusability:
+Organize code into Swift Packages for modularity and reusability.
+All packages are located under the Packages/ directory.
 
 Env Package:
 
