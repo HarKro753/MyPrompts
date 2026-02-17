@@ -5,48 +5,46 @@ description: How to design and implement tools for agentic systems - the interfa
 
 # Agent Tools
 
-This skill describes how tools work in an agentic system - the bridge between the LLM's reasoning and actual actions in the world.
+Tools are functions the LLM can call to interact with the world. Without tools, an LLM can only generate text. With tools, it becomes an agent that can read files, execute commands, search the web, and take real actions.
 
-## Core Concept
+## Quick start
 
-Tools are **functions the LLM can call** to interact with the world. Without tools, an LLM can only generate text. With tools, it becomes an agent that can:
+Minimal tool definition:
 
-- Read and write files
-- Execute commands
-- Search the web
-- Send messages
-- Control hardware
-- And anything else you implement
+```python
+def read_file(path: str) -> str:
+    """Read the contents of a file at the given path."""
+    with open(path, 'r') as f:
+        return f.read()
 
-## The Tool Interface
-
-Every tool must define four things:
-
-### 1. Name
-
-A unique identifier for the tool. Keep it short, descriptive, snake_case.
-
-- Good: `read_file`, `web_search`, `send_message`
-- Bad: `doSomethingWithFile`, `tool1`, `utility`
-
-### 2. Description
-
-A clear explanation of what the tool does. This is what the LLM reads to decide when to use the tool.
-
-- Good: "Read the contents of a file at the given path"
-- Bad: "File reader"
-
-### 3. Parameters
-
-A schema defining what arguments the tool accepts:
-
-- Parameter names and types
-- Which are required vs optional
-- Descriptions for each parameter
-
-Example parameter schema:
-
+# Register with schema
+tool = {
+    "name": "read_file",
+    "description": "Read the contents of a file at the given path",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "The file path to read"}
+        },
+        "required": ["path"]
+    }
+}
 ```
+
+## Instructions
+
+### Step 1: Define the tool interface
+
+Every tool needs four things:
+
+1. **Name** - Unique identifier (snake_case, short, descriptive)
+2. **Description** - What it does and when to use it
+3. **Parameters** - JSON Schema defining arguments
+4. **Execute** - Function that performs the action
+
+### Step 2: Write the parameter schema
+
+```json
 {
   "type": "object",
   "properties": {
@@ -63,250 +61,184 @@ Example parameter schema:
 }
 ```
 
-### 4. Execute
+### Step 3: Implement the execute function
 
-The function that actually performs the action when called.
+```python
+def execute(args: dict) -> ToolResult:
+    try:
+        path = args["path"]
+        limit = args.get("limit", None)
 
-## Tool Results
+        content = read_file(path, limit)
+        return ToolResult(for_llm=content)
 
-When a tool executes, it returns a structured result:
-
-### ForLLM
-
-Content sent back to the LLM as context. This is required - the LLM needs to know what happened.
-
-### ForUser
-
-Content shown directly to the user. Use this for outputs the user should see (command results, fetched content).
-
-### Silent
-
-When true, nothing is shown to the user. Use for background operations (file saves, internal state changes).
-
-### IsError
-
-Indicates the tool failed. The error message goes in ForLLM so the LLM can handle it.
-
-### Async
-
-Indicates the tool started a background operation. The result will come later via callback.
-
-## Result Patterns
-
-### Silent Result
-
-For operations the user doesn't need to see:
-
-```
-"File saved successfully" -> ForLLM only, Silent=true
+    except FileNotFoundError:
+        return ToolResult(for_llm=f"File not found: {path}", is_error=True)
+    except Exception as e:
+        return ToolResult(for_llm=f"Error: {str(e)}", is_error=True)
 ```
 
-### User Result
+### Step 4: Register the tool
 
-For outputs the user should see:
-
-```
-"Command output: [...]" -> ForLLM and ForUser
-```
-
-### Error Result
-
-For failures:
-
-```
-"File not found: config.json" -> ForLLM, IsError=true
+```python
+registry.register(Tool(
+    name="read_file",
+    description="Read the contents of a file at the given path",
+    parameters=schema,
+    execute=execute
+))
 ```
 
-### Async Result
+### Step 5: Handle the result
 
-For background tasks:
+Return a structured result:
 
-```
-"Task started, will report when done" -> ForLLM, Async=true
-```
-
-## The Tool Registry
-
-Tools are collected in a **registry** that:
-
-- Stores all available tools by name
-- Converts tools to LLM-compatible schemas
-- Routes execution requests to the right tool
-- Handles context injection and callbacks
-
-### Registration
-
-Tools are registered at startup:
-
-```
-registry.Register(ReadFileTool)
-registry.Register(WriteFileTool)
-registry.Register(WebSearchTool)
+```python
+ToolResult(
+    for_llm="File contents here",  # Required: sent to LLM
+    for_user="Displayed content",   # Optional: shown to user
+    silent=False,                   # Don't show anything to user
+    is_error=False,                 # Indicates failure
+    async_=False                    # Operation continues in background
+)
 ```
 
-### Execution
+## Examples
 
-When the LLM requests a tool:
+### Example 1: File system tool
 
-```
-result = registry.Execute("read_file", {"path": "config.json"})
-```
-
-### Schema Generation
-
-The registry generates tool definitions for the LLM:
-
-```
-[
-  {
-    "type": "function",
-    "function": {
-      "name": "read_file",
-      "description": "Read file contents",
-      "parameters": {...}
-    }
-  }
-]
+```python
+def write_file(path: str, content: str) -> ToolResult:
+    """Write content to a file, creating it if needed."""
+    try:
+        with open(path, 'w') as f:
+            f.write(content)
+        return ToolResult(
+            for_llm=f"Successfully wrote {len(content)} bytes to {path}",
+            silent=True  # Don't show to user
+        )
+    except Exception as e:
+        return ToolResult(for_llm=f"Error writing file: {e}", is_error=True)
 ```
 
-## Tool Categories
+### Example 2: Web search tool
 
-### File System Tools
-
-- `read_file`: Read file contents
-- `write_file`: Write content to file
-- `edit_file`: Replace text in file
-- `append_file`: Add to end of file
-- `list_dir`: List directory contents
-
-### Execution Tools
-
-- `exec` / `shell`: Run shell commands
-- `subagent`: Spawn independent agent task
-
-### Web Tools
-
-- `web_search`: Search the internet
-- `web_fetch`: Retrieve webpage content
-
-### Communication Tools
-
-- `message`: Send message to user/channel
-
-### Hardware Tools (specialized)
-
-- `i2c`: Communicate with I2C devices
-- `spi`: Communicate with SPI devices
-
-## Contextual Tools
-
-Some tools need to know about the current context:
-
-- Which channel the message came from
-- Which chat/user to respond to
-
-These tools implement an additional interface that receives context before execution:
-
-```
-SetContext(channel, chatID)
+```python
+def web_search(query: str, max_results: int = 5) -> ToolResult:
+    """Search the web for information."""
+    try:
+        results = search_api.search(query, limit=max_results)
+        formatted = "\n".join([f"- {r.title}: {r.snippet}" for r in results])
+        return ToolResult(
+            for_llm=formatted,
+            for_user=formatted  # Show results to user too
+        )
+    except Exception as e:
+        return ToolResult(for_llm=f"Search failed: {e}", is_error=True)
 ```
 
-The agent loop calls this before executing tools that need routing information.
+### Example 3: Shell execution tool
 
-## Async Tools
-
-Long-running operations shouldn't block the agent loop. Async tools:
-
-1. Start the operation in the background
-2. Return immediately with `Async=true`
-3. Continue processing
-4. Call a callback when done
-5. The callback notifies the main agent
-
-Example: Spawning a subagent
-
-- Returns immediately: "Subagent started"
-- Subagent runs independently
-- When done, publishes result to message bus
-- Main agent can handle completion
-
-## Tool Design Principles
-
-### 1. Single Responsibility
-
-Each tool does ONE thing well. Don't combine read+write in one tool.
-
-### 2. Clear Naming
-
-The name should tell you what it does. `edit_file` not `file_op`.
-
-### 3. Descriptive Parameters
-
-Each parameter should be self-documenting. Include descriptions.
-
-### 4. Graceful Errors
-
-Return clear error messages. Don't crash - return ErrorResult.
-
-### 5. Safe Defaults
-
-Optional parameters should have sensible defaults.
-
-### 6. Validation
-
-Check inputs before acting. Return errors for invalid arguments.
-
-### 7. Path Security
-
-For file tools, validate paths are within allowed directories. Prevent directory traversal attacks.
-
-## The Edit Pattern
-
-File editing is a common operation. The pattern:
-
-1. **Read current content**
-2. **Find the text to replace** (must exist exactly once)
-3. **Replace with new text**
-4. **Write back**
-
-Why require exact match?
-
-- Prevents accidental changes to wrong location
-- Ensures the LLM understands current file state
-- Fails safely if file changed since last read
-
-## Tool Summaries in System Prompt
-
-The agent's system prompt includes a summary of available tools:
-
-```
-## Available Tools
-
-- `read_file` - Read the contents of a file
-- `write_file` - Write content to a file
-- `web_search` - Search the web for information
-- `message` - Send a message to the user
+```python
+def exec_command(command: str, timeout: int = 30) -> ToolResult:
+    """Execute a shell command."""
+    try:
+        result = subprocess.run(
+            command, shell=True, capture_output=True,
+            timeout=timeout, text=True
+        )
+        output = result.stdout or result.stderr
+        return ToolResult(
+            for_llm=f"Exit code: {result.returncode}\n{output}",
+            for_user=output
+        )
+    except subprocess.TimeoutExpired:
+        return ToolResult(for_llm="Command timed out", is_error=True)
 ```
 
-This helps the LLM understand its capabilities without the full schema.
+### Example 4: Async background tool
 
-## Adding New Tools
+```python
+def spawn_task(task: str, callback: Callable) -> ToolResult:
+    """Start a background task."""
+    task_id = generate_id()
 
-To extend an agent with new capabilities:
+    # Start in background thread
+    threading.Thread(target=run_task, args=(task_id, task, callback)).start()
 
-1. Define the tool with Name, Description, Parameters, Execute
-2. Handle all error cases gracefully
-3. Return appropriate result type
-4. Register with the tool registry
-5. The LLM automatically gains access
+    return ToolResult(
+        for_llm=f"Task {task_id} started in background",
+        async_=True  # Indicates background operation
+    )
+```
 
-No prompt changes needed - the tool registry dynamically generates tool definitions.
+## Best practices
 
-## Anti-patterns to Avoid
+### Naming
 
-- **God tools**: One tool that does everything
-- **Unclear naming**: `util`, `helper`, `process`
-- **Missing validation**: Accepting any input blindly
-- **Silent failures**: Errors that don't get reported
-- **Blocking operations**: Long tasks that freeze the agent
-- **Unbounded output**: Returning huge amounts of data to LLM
+- **Good**: `read_file`, `web_search`, `send_message`
+- **Bad**: `doSomethingWithFile`, `tool1`, `utility`
+
+### Descriptions
+
+- **Good**: "Read the contents of a file at the given path. Returns the full file content as text."
+- **Bad**: "File reader"
+
+### Design principles
+
+1. **Single responsibility** - One tool does ONE thing well
+2. **Clear naming** - Name tells you what it does
+3. **Descriptive parameters** - Each parameter is self-documenting
+4. **Graceful errors** - Return clear error messages, don't crash
+5. **Safe defaults** - Optional parameters have sensible defaults
+6. **Input validation** - Check inputs before acting
+7. **Path security** - Validate paths are within allowed directories
+
+### Anti-patterns to avoid
+
+- **God tools** - One tool that does everything
+- **Unclear naming** - `util`, `helper`, `process`
+- **Missing validation** - Accepting any input blindly
+- **Silent failures** - Errors that don't get reported
+- **Blocking operations** - Long tasks that freeze the agent
+- **Unbounded output** - Returning huge amounts of data to LLM
+
+## Requirements
+
+### Tool interface
+
+```python
+class Tool:
+    name: str           # Unique identifier
+    description: str    # What it does and when to use
+    parameters: dict    # JSON Schema for arguments
+    execute: Callable   # Function to run
+```
+
+### Result interface
+
+```python
+class ToolResult:
+    for_llm: str        # Content for LLM context (required)
+    for_user: str       # Content for user display (optional)
+    silent: bool        # Hide from user (default: False)
+    is_error: bool      # Indicates failure (default: False)
+    async_: bool        # Background operation (default: False)
+```
+
+### Common tool categories
+
+| Category      | Examples                                   |
+| ------------- | ------------------------------------------ |
+| File system   | read_file, write_file, edit_file, list_dir |
+| Execution     | exec, shell, subprocess                    |
+| Web           | web_search, web_fetch, api_call            |
+| Communication | message, notify, email                     |
+| Data          | query_db, cache_get, cache_set             |
+
+### Dependencies
+
+- JSON Schema validator for parameter validation
+- Subprocess module for shell execution
+- HTTP client for web tools
+- Threading for async operations

@@ -3,615 +3,307 @@ name: travel-agent-apis
 description: APIs for building an AI travel agent - accommodation (Booking.com, vacation rentals), routes, places, and how to combine them. Use when building travel booking systems, integrating with Booking.com API, or when the user asks about travel APIs.
 ---
 
-# Travel Agent APIs Skill
+# Travel Agent APIs
 
-This skill covers the domain knowledge needed to build an AI travel agent, including accommodation booking (hotels AND vacation rentals), route planning, and place discovery.
+Build an AI travel agent using Booking.com for accommodations (including vacation rentals) and Google APIs for routes and attractions. This skill covers the full stack needed for a travel booking system.
 
-## The Accommodation Problem
+## Quick start
 
-**Airbnb has NO public API** (shut down 2018). Your options:
+Search for apartments in Paris:
 
-| Source                | API Type                | What You Get                         | Vacation Rentals?     |
-| --------------------- | ----------------------- | ------------------------------------ | --------------------- |
-| **Booking.com**       | Affiliate (recommended) | Hotels + apartments + vacation homes | ✅ Yes                |
-| **Travelpayouts**     | Affiliate aggregator    | Access to 90+ travel brands          | ✅ Yes (via partners) |
-| **Google Places**     | Public                  | Basic hotel info only                | ❌ No                 |
-| **Amadeus**           | Public (GDS)            | Major hotel chains                   | ❌ Limited            |
-| **RapidAPI scrapers** | Unofficial              | Airbnb data (risky)                  | ⚠️ Unreliable         |
+```python
+# Booking.com Demand API
+import requests
+from requests.auth import HTTPBasicAuth
 
-**Recommendation**: Use **Booking.com Demand API** as primary (has vacation rentals!) + Google Places for attractions/restaurants.
+# 1. Get city ID
+cities = requests.get(
+    "https://distribution-xml.booking.com/2.10/json/cities",
+    params={"name": "Paris", "country": "fr"},
+    auth=HTTPBasicAuth(USERNAME, PASSWORD)
+).json()
+city_id = cities["result"][0]["city_id"]
 
----
+# 2. Search accommodations
+hotels = requests.get(
+    "https://distribution-xml.booking.com/2.10/json/hotels",
+    params={
+        "city_ids": city_id,
+        "checkin": "2026-03-15",
+        "checkout": "2026-03-18",
+        "guest_qty": 2,
+        "accommodation_types": "201,208,213"  # Apartments, vacation homes, villas
+    },
+    auth=HTTPBasicAuth(USERNAME, PASSWORD)
+).json()
+```
 
-## Booking.com Demand API (Accommodations)
+## Instructions
 
-This is your PRIMARY accommodation source. Booking.com has:
+### Step 1: Choose your APIs
 
-- Hotels, hostels, B&Bs
-- **Apartments and vacation rentals** (their "Homes & Apartments" category)
-- Real-time availability and pricing
-- You earn commission on bookings
+| Need | API | Notes |
+|------|-----|-------|
+| Hotels & vacation rentals | Booking.com | Primary accommodation source |
+| Restaurants & attractions | Google Places | Best for POI discovery |
+| Directions & travel times | Google Routes | Route planning |
+| Flights | Amadeus or Skyscanner | Not covered here |
 
-### Getting Access
+**Important**: Airbnb has NO public API (shut down 2018). Use Booking.com's apartments/vacation homes instead.
 
-1. Register as affiliate: https://secure.booking.com/affiliate-program/register.html
+### Step 2: Set up Booking.com access
+
+1. Register as affiliate: https://secure.booking.com/affiliate-program/
 2. Apply for API access through Partner Centre
-3. Receive API credentials (username/password for Basic Auth)
+3. Receive credentials (username/password for Basic Auth)
 
-### Base URL
+### Step 3: Implement accommodation search
 
-```
-https://distribution-xml.booking.com/2.10/json/
-```
-
-### Authentication
-
-HTTP Basic Authentication with your affiliate credentials.
-
-### Key Endpoints
-
-#### 1. Search Hotels/Accommodations
-
-```
-GET /hotels?city_ids=-2140479&checkin=2026-03-15&checkout=2026-03-18&guest_qty=2
-```
-
-Parameters:
-
-- `city_ids` - Booking.com city ID (get from /cities endpoint)
-- `checkin` / `checkout` - Dates (YYYY-MM-DD)
-- `guest_qty` - Number of guests
-- `room_qty` - Number of rooms
-- `rows` - Results per page (max 1000)
-- `accommodation_types` - Filter: 201=Apartments, 204=Hotels, 208=Vacation Homes
-
-#### 2. Get City IDs
-
-```
-GET /cities?name=Paris&country=fr
-```
-
-#### 3. Get Hotel Details
-
-```
-GET /hotels?hotel_ids=10004
-```
-
-Returns: photos, facilities, description, location, reviews
-
-#### 4. Get Room Availability & Pricing
-
-```
-GET /blockAvailability?hotel_ids=10004&checkin=2026-03-15&checkout=2026-03-18
-```
-
-Returns: room types, prices, cancellation policies
-
-### Accommodation Types (for filtering)
-
-```
-201 = Apartments
-204 = Hotels
-205 = Hostels
-206 = Guest houses
-208 = Holiday homes / Vacation rentals
-212 = Bed and breakfasts
-213 = Villas
-219 = Motels
-220 = Resorts
-```
-
-### Sample Response
-
-```json
-{
-  "result": [
-    {
-      "hotel_id": 10004,
-      "name": "Grand Plaza Hotel",
-      "address": "123 Main Street",
-      "city": "Paris",
-      "country_code": "fr",
-      "location": { "latitude": 48.8566, "longitude": 2.3522 },
-      "review_score": 8.5,
-      "review_nr": 1250,
-      "class": 4,
-      "accommodation_type_id": 204,
-      "currency_code": "EUR",
-      "min_rate": 150.0,
-      "max_rate": 450.0,
-      "photos": [{ "url_original": "..." }]
+```python
+def search_accommodations(city, country, checkin, checkout, guests, acc_type="any"):
+    # Get city ID
+    city_response = requests.get(
+        f"{BOOKING_BASE}/cities",
+        params={"name": city, "country": country},
+        auth=auth
+    )
+    city_id = city_response.json()["result"][0]["city_id"]
+    
+    # Map accommodation types
+    type_map = {
+        "hotel": "204",
+        "apartment": "201",
+        "villa": "213",
+        "vacation_home": "208",
+        "hostel": "205",
+        "any": "201,204,205,208,213"
     }
-  ]
-}
-```
-
-### Booking Flow
-
-```
-1. User: "Find apartments in Barcelona for March 15-18"
-
-2. Get city_id:
-   GET /cities?name=Barcelona&country=es
-   → city_id: -372490
-
-3. Search accommodations:
-   GET /hotels?city_ids=-372490&checkin=2026-03-15&checkout=2026-03-18
-              &accommodation_types=201,208,213
-   → List of apartments, vacation homes, villas
-
-4. Get availability/pricing:
-   GET /blockAvailability?hotel_ids=123,456,789&checkin=...
-   → Real prices and room options
-
-5. Present to user with booking links (affiliate URLs)
-```
-
----
-
-## Google APIs (Routes + Places)
-
-Use Google for:
-
-- **Routes**: Directions, travel times, transit info
-- **Places**: Restaurants, attractions, airports (NOT primary accommodation)
-
-## Overview
-
-| API                  | Purpose                              | Use Case                                         |
-| -------------------- | ------------------------------------ | ------------------------------------------------ |
-| **Places API (New)** | Find and get details about locations | Restaurants, attractions, airports               |
-| **Routes API**       | Calculate routes between locations   | Directions, travel times, multi-stop itineraries |
-
-## Places API (New)
-
-Base URL: `https://places.googleapis.com/v1/`
-
-### Key Endpoints
-
-#### 1. Text Search - Find places by query
-
-```
-POST https://places.googleapis.com/v1/places:searchText
-```
-
-Use for: "Find hotels near Times Square", "restaurants in Paris"
-
-```json
-{
-  "textQuery": "hotels near Times Square New York",
-  "maxResultCount": 10
-}
-```
-
-#### 2. Nearby Search - Find places near a location
-
-```
-POST https://places.googleapis.com/v1/places:searchNearby
-```
-
-Use for: Finding amenities near a hotel, attractions near coordinates
-
-```json
-{
-  "locationRestriction": {
-    "circle": {
-      "center": { "latitude": 40.758, "longitude": -73.985 },
-      "radius": 1000.0
+    
+    # Search
+    params = {
+        "city_ids": city_id,
+        "checkin": checkin,
+        "checkout": checkout,
+        "guest_qty": guests,
+        "accommodation_types": type_map.get(acc_type, type_map["any"])
     }
-  },
-  "includedTypes": ["restaurant", "tourist_attraction"]
-}
+    
+    response = requests.get(f"{BOOKING_BASE}/hotels", params=params, auth=auth)
+    return response.json()["result"]
 ```
 
-#### 3. Place Details - Get full info about a place
-
-```
-GET https://places.googleapis.com/v1/places/{placeId}
-```
-
-Use for: Getting hotel contact info, reviews, photos, hours
-
-#### 4. Autocomplete - Suggest places as user types
-
-```
-POST https://places.googleapis.com/v1/places:autocomplete
-```
-
-Use for: Helping users find destinations, airports, hotels
-
-### Important Place Types for Travel
-
-```
-Accommodation: lodging, hotel, motel, bed_and_breakfast, hostel, resort_hotel
-Food: restaurant, cafe, bar, bakery, meal_takeaway
-Transport: airport, train_station, bus_station, car_rental, taxi_stand
-Attractions: tourist_attraction, museum, art_gallery, amusement_park, zoo
-Services: atm, bank, pharmacy, hospital, gas_station
-```
-
-### Fields to Request (use field masks to control cost)
-
-Essential fields for travel:
-
-- `displayName` - Place name
-- `formattedAddress` - Full address
-- `location` - Lat/lng coordinates
-- `rating` - User rating (1-5)
-- `priceLevel` - Cost indicator
-- `types` - Place categories
-- `photos` - Place images
-- `regularOpeningHours` - Operating hours
-- `internationalPhoneNumber` - Contact
-- `websiteUri` - Website
-- `reviews` - User reviews
-
-## Routes API
-
-Base URL: `https://routes.googleapis.com/`
-
-### Key Endpoints
-
-#### 1. Compute Routes - Get directions
-
-```
-POST https://routes.googleapis.com/directions/v2:computeRoutes
-```
-
-```json
-{
-  "origin": {
-    "address": "JFK Airport, New York"
-  },
-  "destination": {
-    "address": "Times Square, New York"
-  },
-  "travelMode": "DRIVE",
-  "computeAlternativeRoutes": true
-}
-```
-
-#### 2. Compute Route Matrix - Multiple origins/destinations
-
-```
-POST https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix
-```
-
-Use for: Comparing travel times between multiple hotels and attractions
-
-### Travel Modes
-
-```
-DRIVE - Car/taxi
-TRANSIT - Public transportation (includes transfers)
-WALK - Walking directions
-BICYCLE - Bike routes
-TWO_WHEELER - Motorcycle/scooter
-```
-
-### Route Options for Travel Agents
-
-```json
-{
-  "routeModifiers": {
-    "avoidTolls": false,
-    "avoidHighways": false,
-    "avoidFerries": false
-  },
-  "departureTime": "2026-03-15T09:00:00Z",
-  "routingPreference": "TRAFFIC_AWARE"
-}
-```
-
-### Response Fields to Request
-
-```
-routes.duration - Total travel time
-routes.distanceMeters - Total distance
-routes.polyline - Route line for display
-routes.legs - Segments between waypoints
-routes.legs.steps - Turn-by-turn directions
-routes.travelAdvisory - Toll info, restrictions
-```
-
-## Building Travel Agent Tools
-
-### Tool: search_hotels
+### Step 4: Get pricing and availability
 
 ```python
-def search_hotels(location: str, check_in: str, check_out: str, guests: int):
-    """
-    Search for hotels near a location.
-
-    Parameters:
-    - location: City, address, or landmark
-    - check_in: Check-in date (YYYY-MM-DD)
-    - check_out: Check-out date (YYYY-MM-DD)
-    - guests: Number of guests
-    """
-    # Use Places Text Search
-    # Filter by type: "lodging"
-    # Return: name, rating, price_level, address, photos
+def get_availability(hotel_ids, checkin, checkout):
+    response = requests.get(
+        f"{BOOKING_BASE}/blockAvailability",
+        params={
+            "hotel_ids": ",".join(hotel_ids),
+            "checkin": checkin,
+            "checkout": checkout
+        },
+        auth=auth
+    )
+    return response.json()
 ```
 
-### Tool: search_attractions
+### Step 5: Combine with Google APIs
 
 ```python
-def search_attractions(location: str, category: str = None):
-    """
-    Find tourist attractions near a location.
-
-    Parameters:
-    - location: City or coordinates
-    - category: Optional filter (museum, park, etc.)
-    """
-    # Use Places Nearby Search
-    # Filter by type: "tourist_attraction"
-    # Include reviews and photos
+def enrich_with_location_data(accommodations, attractions_query):
+    # For each accommodation, find nearby attractions
+    for acc in accommodations:
+        # Get walking distance to key attractions
+        route = compute_route(
+            acc["address"],
+            attractions_query,
+            mode="WALK"
+        )
+        acc["walk_time"] = route["duration"]
+        
+        # Find nearby restaurants
+        restaurants = search_nearby(
+            center=acc["location"],
+            radius=500,
+            types=["restaurant"]
+        )
+        acc["nearby_restaurants"] = restaurants[:3]
+    
+    return accommodations
 ```
 
-### Tool: get_route
+## Examples
+
+### Example 1: Full accommodation search
 
 ```python
-def get_route(origin: str, destination: str, mode: str = "DRIVE"):
-    """
-    Get directions between two places.
+# User: "Find apartments in Barcelona for March 15-18, 2 guests"
 
-    Parameters:
-    - origin: Starting location
-    - destination: End location
-    - mode: DRIVE, TRANSIT, WALK, BICYCLE
-    """
-    # Use Routes Compute Routes
-    # Return: duration, distance, steps
+# 1. Search Booking.com
+accommodations = search_accommodations(
+    city="Barcelona",
+    country="es",
+    checkin="2026-03-15",
+    checkout="2026-03-18",
+    guests=2,
+    acc_type="apartment"
+)
+
+# 2. Get availability and pricing
+hotel_ids = [a["hotel_id"] for a in accommodations[:10]]
+availability = get_availability(hotel_ids, "2026-03-15", "2026-03-18")
+
+# 3. Format results
+results = []
+for acc in accommodations[:5]:
+    results.append({
+        "name": acc["name"],
+        "rating": acc["review_score"],
+        "price": availability[acc["hotel_id"]]["min_price"],
+        "address": acc["address"],
+        "type": get_accommodation_type(acc["accommodation_type_id"])
+    })
+
+# 4. Present
+"Found 5 apartments in Barcelona:
+1. Modern Loft - 9.2★ - €120/night - Gothic Quarter
+2. Beach Apartment - 8.8★ - €95/night - Barceloneta
+..."
 ```
 
-### Tool: plan_day_itinerary
+### Example 2: Combined trip planning
 
 ```python
-def plan_day_itinerary(hotel: str, attractions: list[str]):
-    """
-    Optimize visiting order for multiple attractions.
+# User: "Find me a nice apartment near the Louvre, suggest restaurants nearby"
 
-    Parameters:
-    - hotel: Starting/ending point
-    - attractions: List of places to visit
-    """
-    # Use Routes with optimizeWaypointOrder: true
-    # Return optimized order with travel times
+# 1. Search apartments (Booking.com)
+apartments = search_accommodations("Paris", "fr", "2026-03-15", "2026-03-18", 2, "apartment")
+
+# 2. Filter by proximity to Louvre (Google Routes)
+louvre_coords = {"latitude": 48.8606, "longitude": 2.3376}
+for apt in apartments:
+    route = compute_route(apt["address"], "Louvre Museum Paris", mode="WALK")
+    apt["walk_to_louvre"] = route["duration"]
+
+apartments_near_louvre = [a for a in apartments if parse_duration(a["walk_to_louvre"]) < 15]
+
+# 3. Find restaurants (Google Places)
+restaurants = search_nearby(
+    center=louvre_coords,
+    radius=500,
+    types=["restaurant"]
+)
+
+# 4. Present combined results
+"Here are 3 apartments near the Louvre:
+1. Charming Studio - €120/night - 3 min walk to Louvre
+2. Modern Loft - €180/night - 7 min walk to Louvre
+...
+
+Nearby restaurants:
+1. Le Fumoir (French) - €€€ - 4.5★
+2. Café Marly (French) - €€€€ - 4.3★
+..."
 ```
 
-## Common Travel Agent Workflows
-
-### 1. Hotel Recommendation Flow
-
-```
-User: "Find me a hotel in Paris near the Eiffel Tower"
-
-1. Text Search: "hotels near Eiffel Tower Paris"
-   → Get list of hotels with ratings, prices
-
-2. For top 3 results, get Place Details
-   → Reviews, photos, amenities
-
-3. For each hotel, compute route to Eiffel Tower
-   → Walking time to attraction
-
-4. Present options sorted by rating/distance
-```
-
-### 2. Day Trip Planning Flow
-
-```
-User: "Plan a day visiting museums in Rome"
-
-1. Nearby Search: museums in Rome
-   → Get list with ratings, hours
-
-2. Filter by opening hours for requested date
-
-3. Compute Route Matrix between all museums
-   → Get travel times between each pair
-
-4. Optimize route order
-   → Minimize total travel time
-
-5. Generate itinerary with times
-```
-
-### 3. Multi-City Trip Flow
-
-```
-User: "Plan 5 days: Paris, Amsterdam, Brussels"
-
-1. For each city:
-   - Search hotels
-   - Search top attractions
-
-2. Between cities:
-   - Compute routes (train/drive options)
-
-3. Allocate days based on:
-   - Travel time between cities
-   - Number of attractions
-
-4. Generate day-by-day itinerary
-```
-
-## API Cost Optimization
-
-### Use Field Masks
-
-Only request fields you need - you're billed per field category.
-
-```
-# Cheap: Basic info only
-fields=places.displayName,places.formattedAddress
-
-# More expensive: Includes contact, atmosphere
-fields=places.displayName,places.rating,places.reviews
-```
-
-### Session Tokens for Autocomplete
-
-Group autocomplete requests to reduce billing:
-
-```
-# Generate session token
-# Use same token for all autocomplete requests
-# Token expires after Place Details call
-```
-
-### Cache Place IDs
-
-Place IDs don't change - store them to avoid repeated searches.
-
-## Error Handling
-
-### Common Errors
-
-| Error              | Cause                 | Solution                  |
-| ------------------ | --------------------- | ------------------------- |
-| `ZERO_RESULTS`     | No places match query | Broaden search area/terms |
-| `OVER_QUERY_LIMIT` | Too many requests     | Add delays, check quota   |
-| `REQUEST_DENIED`   | API key issue         | Check key restrictions    |
-| `INVALID_REQUEST`  | Bad parameters        | Validate inputs           |
-
-### Graceful Degradation
-
-```
-if no_hotels_found:
-    expand_search_radius()
-    suggest_nearby_areas()
-
-if route_unavailable:
-    try_alternative_mode()
-    suggest_nearby_starting_point()
-```
-
-## Building the Full Travel Agent
-
-### Tool: search_accommodations (Booking.com)
+### Example 3: Multi-destination itinerary
 
 ```python
-def search_accommodations(
-    city: str,
-    country: str,
-    check_in: str,
-    check_out: str,
-    guests: int,
-    accommodation_type: str = "any"  # hotel, apartment, villa, vacation_home
-):
-    """
-    Search for accommodations including vacation rentals.
+# User: "Plan 5 days: Paris, Amsterdam, Brussels"
 
-    Parameters:
-    - city: City name
-    - country: Country code (us, fr, es, etc.)
-    - check_in: Check-in date (YYYY-MM-DD)
-    - check_out: Check-out date (YYYY-MM-DD)
-    - guests: Number of guests
-    - accommodation_type: Filter by type
-    """
-    # 1. Get city_id from Booking.com
-    # 2. Search with accommodation_type filter
-    # 3. Get availability/pricing
-    # 4. Return: name, type, rating, price, photos, booking_url
+itinerary = []
+cities = [
+    {"name": "Paris", "country": "fr", "days": 2},
+    {"name": "Amsterdam", "country": "nl", "days": 2},
+    {"name": "Brussels", "country": "be", "days": 1}
+]
+
+for city in cities:
+    # Get accommodations
+    hotels = search_accommodations(city["name"], city["country"], ...)
+    
+    # Get attractions
+    attractions = search_text(f"top attractions in {city['name']}")
+    
+    itinerary.append({
+        "city": city["name"],
+        "days": city["days"],
+        "hotel": hotels[0],
+        "attractions": attractions[:5]
+    })
+
+# Calculate travel between cities
+for i in range(len(cities) - 1):
+    route = compute_route(cities[i]["name"], cities[i+1]["name"], mode="TRANSIT")
+    itinerary[i]["travel_to_next"] = route
 ```
 
-### Tool: search_restaurants (Google Places)
+## Best practices
+
+### Accommodation types (Booking.com)
+
+| Code | Type |
+|------|------|
+| 201 | Apartments |
+| 204 | Hotels |
+| 205 | Hostels |
+| 206 | Guest houses |
+| 208 | Holiday homes / Vacation rentals |
+| 212 | B&Bs |
+| 213 | Villas |
+| 220 | Resorts |
+
+### API combination strategy
+
+1. **Booking.com first**: Get accommodations with real prices
+2. **Google Places second**: Enrich with nearby attractions
+3. **Google Routes third**: Calculate travel times
+
+### Error handling
 
 ```python
-def search_restaurants(location: str, cuisine: str = None, price_level: int = None):
-    """
-    Find restaurants near a location.
-    Uses Google Places API.
-    """
+def robust_search(city, country, checkin, checkout, guests):
+    try:
+        return search_accommodations(city, country, checkin, checkout, guests)
+    except NoResultsError:
+        # Try broader search
+        return search_accommodations(city, country, checkin, checkout, guests, acc_type="any")
+    except APIError as e:
+        # Fall back to cached results or inform user
+        return get_cached_results(city) or {"error": str(e)}
 ```
 
-### Tool: search_attractions (Google Places)
+### Revenue model
 
-```python
-def search_attractions(location: str, category: str = None):
-    """
-    Find tourist attractions near a location.
-    Uses Google Places API.
-    """
-```
+You earn commission on bookings made through your affiliate links:
+- Booking.com: 25-40% of their commission
+- This means your travel agent can actually generate revenue
 
-### Tool: get_route (Google Routes)
+## Requirements
 
-```python
-def get_route(origin: str, destination: str, mode: str = "DRIVE"):
-    """
-    Get directions between two places.
-    Uses Google Routes API.
-    """
-```
+### Booking.com API
 
----
+- **Base URL**: `https://distribution-xml.booking.com/2.10/json/`
+- **Auth**: HTTP Basic Authentication
+- **Required**: Affiliate account with API access
 
-## Combined Workflow Example
+### Key endpoints
 
-```
-User: "Find me a nice apartment in Paris near the Louvre for March 15-18,
-       2 guests. Also suggest some restaurants nearby."
+| Endpoint | Purpose |
+|----------|---------|
+| `/cities` | Get city IDs |
+| `/hotels` | Search accommodations |
+| `/blockAvailability` | Get pricing |
+| `/hotels?hotel_ids=X` | Get hotel details |
 
-1. ACCOMMODATION (Booking.com):
-   - Get Paris city_id
-   - Search: accommodation_types=201 (apartments)
-   - Filter by location near Louvre (lat/lng)
-   - Get pricing for dates
-   → Return top 5 apartments with prices
+### Google APIs (see google-travel-apis skill)
 
-2. RESTAURANTS (Google Places):
-   - Nearby Search around Louvre coordinates
-   - Type: restaurant
-   → Return top restaurants with ratings
+- Places API for attractions/restaurants
+- Routes API for directions
 
-3. ROUTE (Google Routes):
-   - For each apartment, calculate walk time to Louvre
-   → Add "5 min walk to Louvre" to apartment listings
+### Dependencies
 
-4. PRESENT:
-   "Here are 5 apartments near the Louvre:
-    1. Charming Studio - €120/night (8.9★) - 3 min walk to Louvre
-    2. Modern Loft - €180/night (9.2★) - 7 min walk to Louvre
-    ...
-
-    Nearby restaurants:
-    1. Le Fumoir (French) - €€€ - 4.5★
-    2. Café Marly (French) - €€€€ - 4.3★
-    ..."
-```
-
----
-
-## Affiliate Revenue Model
-
-When users book through your links:
-
-| Platform               | Commission                                    |
-| ---------------------- | --------------------------------------------- |
-| Booking.com            | 25-40% of their commission (varies by volume) |
-| Travelpayouts partners | Varies by brand                               |
-
-Your travel agent can actually **make money** while helping users!
-
----
-
-## Alternative: Travelpayouts (Multi-Brand)
-
-If you want access to multiple brands through ONE platform:
-
-Travelpayouts aggregates:
-
-- Booking.com
-- Hostelworld
-- 12Go (Asia transport)
-- GetYourGuide (tours)
-- Viator (activities)
-- Rentalcars.com
-- And 90+ more
-
-Single dashboard, single payout. Good for expanding beyond accommodation later.
+- HTTP client with Basic Auth support
+- Google Cloud API key
+- Booking.com affiliate credentials

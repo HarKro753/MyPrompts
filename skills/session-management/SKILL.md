@@ -5,306 +5,246 @@ description: How agents maintain conversation continuity - history storage, cont
 
 # Session Management
 
-This skill describes how an agent maintains conversation continuity - storing message history, summarizing when context grows too large, and persisting sessions across restarts.
+A session is a single conversation thread that maintains continuity across multiple exchanges. It stores message history, manages context overflow through summarization, and persists across agent restarts.
 
-## Core Concept
+## Quick start
 
-A **session** is a single conversation thread. It includes:
-- All messages exchanged (user, assistant, tool calls, tool results)
-- A summary of older messages (when history is truncated)
-- Timestamps for creation and last update
+Basic session handling:
 
-Sessions are identified by a **session key** - typically `channel:chatID` (e.g., `telegram:123456`).
+```python
+# Get or create session
+session = sessions.get_or_create("telegram:123456")
 
-## Session vs Memory
+# Add messages
+session.add_message("user", "Hello")
+session.add_message("assistant", "Hi there!")
 
-These serve different purposes:
+# Get history for LLM context
+history = session.get_history()
 
-| Aspect | Session | Memory |
-|--------|---------|--------|
-| Scope | One conversation | All time |
-| Content | Messages exchanged | Facts learned |
-| Lifetime | Until summarized/cleared | Persistent |
-| Purpose | Conversation flow | Long-term knowledge |
-
-The agent uses BOTH:
-- Session history for "what did we just talk about?"
-- Memory for "what do I know about this user?"
-
-## The Session Structure
-
-```
-Session {
-  Key:      "telegram:123456"
-  Messages: [
-    {Role: "user", Content: "Hello"},
-    {Role: "assistant", Content: "Hi there!"},
-    {Role: "user", Content: "Read my config file"},
-    {Role: "assistant", Content: "", ToolCalls: [read_file(...)]},
-    {Role: "tool", Content: "file contents...", ToolCallID: "call_123"},
-    {Role: "assistant", Content: "Here's your config..."}
-  ]
-  Summary:  "User greeted assistant and asked about config file..."
-  Created:  2026-02-15T10:00:00Z
-  Updated:  2026-02-15T10:05:00Z
-}
+# Save to disk
+session.save()
 ```
 
-## Message Types in History
+## Instructions
 
-### User Messages
-```
-{Role: "user", Content: "What's in my config?"}
+### Step 1: Create session storage
+
+```python
+class Session:
+    key: str              # Unique identifier (e.g., "telegram:123456")
+    messages: list        # Message history
+    summary: str          # Summary of older messages
+    created: datetime
+    updated: datetime
 ```
 
-### Assistant Messages (text only)
-```
-{Role: "assistant", Content: "Let me check that for you."}
+### Step 2: Implement session operations
+
+```python
+def get_or_create(key: str) -> Session:
+    if key in sessions:
+        return sessions[key]
+    session = Session(key=key, messages=[], summary="")
+    sessions[key] = session
+    return session
+
+def add_message(session: Session, role: str, content: str):
+    session.messages.append({"role": role, "content": content})
+    session.updated = datetime.now()
+
+def get_history(session: Session) -> list:
+    return session.messages.copy()
 ```
 
-### Assistant Messages (with tool calls)
+### Step 3: Handle context overflow
+
+When history grows too large, summarize:
+
+```python
+def check_and_summarize(session: Session, max_messages: int = 20):
+    if len(session.messages) <= max_messages:
+        return
+    
+    # Keep recent messages
+    recent = session.messages[-4:]
+    older = session.messages[:-4]
+    
+    # Summarize older messages
+    summary = llm.summarize(older)
+    
+    # Update session
+    session.summary = summary
+    session.messages = recent
 ```
+
+### Step 4: Include summary in context
+
+```python
+def build_context(session: Session, system_prompt: str) -> list:
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add summary if exists
+    if session.summary:
+        messages.append({
+            "role": "system", 
+            "content": f"## Previous Conversation Summary\n{session.summary}"
+        })
+    
+    # Add recent history
+    messages.extend(session.get_history())
+    
+    return messages
+```
+
+### Step 5: Persist to disk
+
+```python
+def save(session: Session, path: str):
+    filename = session.key.replace(":", "_") + ".json"
+    filepath = os.path.join(path, filename)
+    
+    with open(filepath, 'w') as f:
+        json.dump({
+            "key": session.key,
+            "messages": session.messages,
+            "summary": session.summary,
+            "created": session.created.isoformat(),
+            "updated": session.updated.isoformat()
+        }, f)
+```
+
+## Examples
+
+### Example 1: Message types in history
+
+```python
+# User message
+{"role": "user", "content": "What's in config.json?"}
+
+# Assistant text response
+{"role": "assistant", "content": "Let me check that for you."}
+
+# Assistant tool call
 {
-  Role: "assistant",
-  Content: "",
-  ToolCalls: [
-    {ID: "call_abc", Type: "function", Function: {Name: "read_file", Arguments: "{...}"}}
-  ]
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [{
+        "id": "call_abc123",
+        "type": "function",
+        "function": {"name": "read_file", "arguments": '{"path": "config.json"}'}
+    }]
+}
+
+# Tool result
+{"role": "tool", "content": "{\"api_key\": \"...\"}", "tool_call_id": "call_abc123"}
+```
+
+### Example 2: Session key format
+
+```python
+# Channel:ChatID format
+"telegram:123456"     # Telegram user
+"cli:direct"          # CLI interaction
+"whatsapp:+1234567"   # WhatsApp number
+"slack:C04ABCD"       # Slack channel
+"system:heartbeat"    # System processes
+```
+
+### Example 3: Summarization trigger
+
+```python
+# Check thresholds
+if len(history) > 20 or estimate_tokens(history) > context_window * 0.75:
+    trigger_summarization()
+
+# Token estimation (rough)
+def estimate_tokens(messages: list) -> int:
+    total_chars = sum(len(m["content"]) for m in messages)
+    return total_chars // 4  # ~4 chars per token for English
+```
+
+### Example 4: Handling orphaned tool messages
+
+```python
+# Problem: Session starts with tool message (no preceding assistant)
+# This causes LLM errors
+
+def sanitize_history(messages: list) -> list:
+    # Strip leading tool messages
+    while messages and messages[0]["role"] == "tool":
+        messages = messages[1:]
+    return messages
+```
+
+## Best practices
+
+### Session hygiene
+
+- **Save after completion** - Save after agent finishes responding, not mid-execution
+- **Keep recent context** - Always keep 4-6 recent messages for immediate context
+- **Quality summaries** - Preserve key decisions, facts learned, current task state
+
+### Concurrency
+
+- **Thread-safe operations** - Use locks for multi-threaded access
+- **Read locks** - For get_history, get_summary
+- **Write locks** - For add_message, set_summary, truncate
+
+### Persistence
+
+- **Atomic writes** - Write to temp file, sync, then rename
+- **Sanitize filenames** - Replace `:` with `_` for Windows compatibility
+- **Load on startup** - Restore all sessions from disk
+
+### Error handling
+
+- **Graceful degradation** - If summarization fails, keep full history
+- **Don't lose context** - Better to overflow than lose messages
+- **Handle corrupted files** - Skip and log, don't crash
+
+### Cleanup
+
+- **Periodic cleanup** - Remove old inactive sessions
+- **Archive old sessions** - Compress and store for later reference
+
+## Requirements
+
+### Session structure
+
+```python
+Session {
+    key: str           # "channel:chatID"
+    messages: list     # Message history
+    summary: str       # Summary of truncated history
+    created: datetime  # Session creation time
+    updated: datetime  # Last activity time
 }
 ```
 
-### Tool Results
-```
-{Role: "tool", Content: "file contents here", ToolCallID: "call_abc"}
-```
+### Message structure
 
-The **ToolCallID** links each tool result to its corresponding tool call. This is critical for the LLM to understand the conversation flow.
-
-## Session Operations
-
-### Get or Create
-When a message arrives, get the existing session or create a new one:
-```
-session = sessions.GetOrCreate("telegram:123456")
+```python
+Message {
+    role: str          # "user" | "assistant" | "tool" | "system"
+    content: str       # Message text
+    tool_calls: list   # Optional: tool call requests
+    tool_call_id: str  # Optional: links tool result to call
+}
 ```
 
-### Add Message
-After each exchange, add messages to history:
-```
-sessions.AddMessage(key, "user", "Hello")
-sessions.AddMessage(key, "assistant", "Hi there!")
-```
-
-### Add Full Message (with tool calls)
-For messages containing tool calls or tool results, preserve the full structure:
-```
-sessions.AddFullMessage(key, {
-  Role: "assistant",
-  ToolCalls: [...]
-})
-```
-
-### Get History
-When building context, retrieve the conversation history:
-```
-history = sessions.GetHistory(key)
-// Returns copy of messages array
-```
-
-### Save
-Persist to disk after changes:
-```
-sessions.Save(key)
-```
-
-## Context Overflow Problem
-
-LLMs have limited context windows. A long conversation will overflow:
+### Storage format
 
 ```
-System Prompt:     ~3000 tokens
-Session History:   ??? tokens (grows unbounded)
-Current Message:   ~100 tokens
-                   ──────────
-                   Must fit in context window
-```
-
-When history grows too large, the agent must **summarize**.
-
-## The Summarization Strategy
-
-### When to Summarize
-
-Check after each response:
-```
-if len(history) > 20 OR estimateTokens(history) > (contextWindow * 0.75):
-    triggerSummarization()
-```
-
-Thresholds:
-- Message count: >20 messages
-- Token estimate: >75% of context window
-
-### How to Summarize
-
-1. **Keep recent messages** (last 4) for immediate context
-2. **Take older messages** for summarization
-3. **Ask LLM** to create a concise summary
-4. **Store summary** separately
-5. **Truncate history** to recent messages only
-
-```
-Before:
-  Messages: [m1, m2, m3, m4, m5, m6, m7, m8, m9, m10]
-  Summary: ""
-
-After:
-  Messages: [m7, m8, m9, m10]  (kept last 4)
-  Summary: "User asked about X, assistant helped with Y..."
-```
-
-### Multi-Part Summarization
-
-For very long histories:
-1. Split messages into two parts
-2. Summarize each part separately
-3. Merge the two summaries into one
-
-This prevents the summarization prompt itself from overflowing.
-
-### Oversized Message Guard
-
-Skip messages larger than 50% of context window:
-```
-maxMessageTokens = contextWindow / 2
-for each message:
-    if estimateTokens(message) > maxMessageTokens:
-        skip (don't include in summarization)
-```
-
-This prevents a single huge message (like a large file read) from breaking summarization.
-
-## Using Summary in Context
-
-When building messages for the LLM:
-
-```
-System Prompt
----
-## Summary of Previous Conversation
-[summary content here]
----
-[recent history messages]
----
-[current user message]
-```
-
-The summary provides context about what happened before, while recent messages provide the immediate conversation flow.
-
-## Token Estimation
-
-A simple heuristic for estimating tokens:
-```
-tokens = characterCount / 4  (for English)
-tokens = runeCount / 3       (for CJK/mixed text)
-```
-
-This is approximate but good enough for threshold decisions.
-
-## Session Persistence
-
-Sessions are saved to disk as JSON files:
-```
-workspace/sessions/
+sessions/
   telegram_123456.json
   cli_direct.json
-  whatsapp_789.json
+  slack_C04ABCD.json
 ```
 
-### Filename Sanitization
-Session keys like `telegram:123456` contain `:` which is invalid on Windows. The key is sanitized for filenames but preserved inside the JSON:
-```
-Key: "telegram:123456" → File: "telegram_123456.json"
-```
+### Dependencies
 
-### Atomic Writes
-To prevent corruption on crash:
-1. Write to temporary file
-2. Sync to disk
-3. Rename to final path
-
-This ensures the session file is either complete or doesn't exist.
-
-### Loading on Startup
-When the agent starts, it loads all existing session files:
-```
-for each .json file in sessions/:
-    parse JSON
-    add to in-memory sessions map
-```
-
-Sessions survive restarts.
-
-## Session Keys
-
-The key format is `channel:chatID`:
-- `telegram:123456` - Telegram user 123456
-- `cli:direct` - CLI direct interaction
-- `whatsapp:+1234567890` - WhatsApp number
-- `system:heartbeat` - System processes
-
-Different keys = different conversations, even for the same user across channels.
-
-## Orphaned Tool Messages
-
-A special edge case: if a session starts with a `tool` message (no preceding assistant message with tool calls), the LLM will error.
-
-**Fix**: Strip leading tool messages when loading history:
-```
-while history[0].Role == "tool":
-    history = history[1:]  // Remove orphaned tool message
-```
-
-This can happen if a session was saved mid-tool-execution.
-
-## Concurrency
-
-Session operations must be thread-safe:
-- Multiple goroutines may access sessions simultaneously
-- Use read/write locks
-- Read lock for GetHistory, GetSummary
-- Write lock for AddMessage, SetSummary, TruncateHistory
-
-## Heartbeat Sessions
-
-Some operations (like scheduled checks) don't need history:
-```
-ProcessHeartbeat(ctx, content, channel, chatID)
-  → NoHistory: true
-  → Don't load session history
-  → Don't save to session
-```
-
-This keeps scheduled runs lightweight and independent.
-
-## Best Practices
-
-### 1. Save After Completion
-Save the session after the agent finishes responding, not during tool execution.
-
-### 2. Summary Quality
-Good summaries preserve:
-- Key decisions made
-- Important facts learned
-- Current task state
-
-Bad summaries are just "User and assistant talked about stuff."
-
-### 3. Don't Over-Summarize
-Keep enough recent messages (4-6) for the LLM to understand immediate context.
-
-### 4. Handle Failures Gracefully
-If summarization fails, keep the full history rather than losing context.
-
-### 5. Session Cleanup
-Consider periodic cleanup of old/inactive sessions to prevent disk bloat.
+- JSON serialization
+- File system access
+- Threading/locking primitives
+- LLM API for summarization

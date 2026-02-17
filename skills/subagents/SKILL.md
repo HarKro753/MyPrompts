@@ -5,330 +5,251 @@ description: How to spawn independent agent instances for parallel task executio
 
 # Subagents
 
-This skill describes how a main agent can spawn independent agent instances to handle tasks in parallel, enabling delegation, background processing, and concurrent execution.
+A subagent is an independent agent instance that runs its own loop, has access to tools, completes a specific task, and reports results back. Use subagents for parallel execution, background tasks, and task delegation.
 
-## Core Concept
+## Quick start
 
-A **subagent** is an independent agent instance that:
-- Runs its own agent loop
-- Has access to tools
-- Completes a specific task
-- Reports results back to the main agent
+Spawn a subagent:
 
-Think of it as the agent saying: "I'll handle this myself" vs "Let me delegate this to a helper."
+```python
+# Async (fire and forget)
+task_id = spawn(
+    task="Research Python async patterns",
+    label="python-research"
+)
+# Returns immediately, task runs in background
 
-## Why Subagents?
-
-### Problem: Sequential Bottleneck
-The main agent loop processes one thing at a time:
-```
-User: "Research topic A, then research topic B, then compare them"
-
-Without subagents:
-  Research A (30 seconds)
-  → Research B (30 seconds)  
-  → Compare (5 seconds)
-  Total: 65 seconds
+# Sync (wait for result)
+result = subagent(
+    task="Summarize this file",
+    label="file-summary"
+)
+# Blocks until complete, returns result
 ```
 
-### Solution: Parallel Execution
-```
-With subagents:
-  Spawn: Research A ──────┐
-  Spawn: Research B ──────┼── (parallel, 30 seconds)
-  Wait for both ──────────┘
-  Compare (5 seconds)
-  Total: 35 seconds
-```
+## Instructions
 
-## Two Patterns: Async vs Sync
+### Step 1: Decide async vs sync
 
-### Async (spawn)
-**Fire and forget** - start the task, continue immediately.
+| Pattern | Behavior | Use When |
+|---------|----------|----------|
+| **Async (spawn)** | Fire and forget, continue immediately | Independent tasks, background work |
+| **Sync (subagent)** | Block and wait for result | Need result to continue, subtasks |
 
-```
-Main Agent:
-  "I'll spawn a subagent to research this in the background"
-  → spawn(task: "Research topic X", label: "research-x")
-  → Returns immediately: "Subagent spawned"
-  → Main agent continues with other work
-  
-Later:
-  Subagent completes
-  → Result published to message bus
-  → Main agent receives notification
+### Step 2: Define the task clearly
+
+```python
+# Good: Clear, specific, actionable
+task = "Search for Python async patterns and summarize the top 3 approaches with code examples"
+
+# Bad: Vague, too broad
+task = "Look into Python stuff"
 ```
 
-**Use when**:
-- Task is truly independent
-- User doesn't need immediate result
-- You want to do other things while waiting
+### Step 3: Spawn the subagent
 
-### Sync (subagent)
-**Wait for result** - block until task completes.
-
-```
-Main Agent:
-  "Let me delegate this to a subagent"
-  → subagent(task: "Research topic X", label: "research-x")
-  → Waits for completion
-  → Returns with result: "Research found: ..."
-  → Main agent uses result immediately
+**Async spawn:**
+```python
+task_id = spawn(
+    task="Research topic X",
+    label="research-x",
+    callback=handle_completion  # Optional: called when done
+)
+# Returns immediately
+print(f"Task {task_id} started")
 ```
 
-**Use when**:
-- You need the result to continue
-- Task is a subtask of larger work
-- Immediate response is required
-
-## The Subagent Structure
-
-### Task Definition
-```
-SubagentTask {
-  ID:            "subagent-1"
-  Task:          "Research the history of Go programming language"
-  Label:         "go-research"
-  OriginChannel: "telegram"
-  OriginChatID:  "123456"
-  Status:        "running" | "completed" | "failed" | "cancelled"
-  Result:        "Go was created at Google in 2009..."
-  Created:       1708012345678
-}
+**Sync subagent:**
+```python
+result = subagent(
+    task="Analyze this data",
+    label="data-analysis"
+)
+# Blocks until complete
+print(f"Result: {result}")
 ```
 
-### Task Lifecycle
-```
-created → running → completed
-                 → failed
-                 → cancelled
-```
+### Step 4: Handle the result
 
-## Subagent Execution
-
-When a subagent runs, it gets:
-
-### 1. Minimal System Prompt
-```
-You are a subagent. Complete the given task independently and report the result.
-You have access to tools - use them as needed to complete your task.
-After completing the task, provide a clear summary of what was done.
+**Async results** come via callback or message bus:
+```python
+def handle_completion(task_id, result):
+    if result.is_error:
+        log.error(f"Task {task_id} failed: {result.error}")
+    else:
+        process_result(result.content)
 ```
 
-No personality files, no memory - just focus on the task.
-
-### 2. The Task as User Message
-```
-{Role: "user", Content: "Research the history of Go programming language"}
-```
-
-### 3. Access to Tools
-Subagents can use the same tools as the main agent:
-- File operations
-- Web search
-- Shell execution
-- etc.
-
-**Exception**: Subagents typically don't get `spawn` or `subagent` tools to prevent recursive spawning.
-
-### 4. Its Own Tool Loop
-The subagent runs the same LLM → Tool → LLM loop:
-```
-LLM: "I'll search for Go history"
-→ web_search("Go programming language history")
-→ "Results: Go was created..."
-LLM: "Let me get more details"
-→ web_fetch("https://go.dev/doc/...")
-→ "Content: ..."
-LLM: "Here's the summary: Go was created at Google in 2009..."
+**Sync results** return directly:
+```python
+result = subagent(task="...", label="...")
+if result.is_error:
+    # Handle error
+else:
+    # Use result.content
 ```
 
-## Result Handling
+### Step 5: Handle failures
 
-### Async (spawn) Results
+```python
+result = subagent(task="...", label="...")
 
-When async subagent completes:
-1. Result is published to message bus as system message
-2. Main agent receives it through normal message processing
-3. Main agent can forward to user or take further action
-
-```
-Message Bus:
-  Channel: "system"
-  SenderID: "subagent:subagent-1"
-  ChatID: "telegram:123456"  (origin info)
-  Content: "Task 'go-research' completed.\n\nResult:\n..."
-```
-
-### Sync (subagent) Results
-
-Sync subagent returns directly:
-```
-ToolResult {
-  ForLLM:  "Subagent task completed:\nLabel: go-research\nIterations: 3\nResult: ..."
-  ForUser: "Go was created at Google in 2009..."  (truncated if too long)
-  Silent:  false
-  IsError: false
-}
+if result.is_error:
+    # Option 1: Retry
+    result = subagent(task="...", label="...-retry")
+    
+    # Option 2: Try alternative approach
+    result = subagent(task="Alternative approach...", label="...-alt")
+    
+    # Option 3: Report to user
+    message("I encountered an error. Let me try a different approach...")
 ```
 
-The main agent can immediately use this in its reasoning.
+## Examples
 
-## Context Preservation
+### Example 1: Parallel research
 
-Subagents need to know where results should go:
+```python
+# User: "Research topic A and topic B, then compare them"
 
-### Origin Channel & ChatID
-```
-OriginChannel: "telegram"
-OriginChatID:  "123456"
-```
+# Spawn parallel research tasks
+spawn(task="Research topic A thoroughly", label="research-a")
+spawn(task="Research topic B thoroughly", label="research-b")
 
-When the subagent uses the `message` tool to communicate with the user, it routes to the original channel.
+# Wait for both to complete (via message bus or polling)
+results = wait_for_tasks(["research-a", "research-b"])
 
-### Contextual Tools
-Tools that need routing (like `message`) receive context:
-```
-tool.SetContext(originChannel, originChatID)
-```
-
-## The Subagent Manager
-
-A central manager tracks all subagents:
-
-### Spawn
-```
-manager.Spawn(ctx, task, label, channel, chatID, callback)
-→ Creates task entry
-→ Starts goroutine
-→ Returns immediately
+# Now compare
+comparison = subagent(
+    task=f"Compare these findings:\nA: {results['a']}\nB: {results['b']}",
+    label="comparison"
+)
 ```
 
-### Task Tracking
-```
-manager.GetTask("subagent-1")    → task details
-manager.ListTasks()              → all active/completed tasks
-```
+### Example 2: Background compilation
 
-### Resource Limits
-```
-MaxIterations: 10  (prevent runaway subagents)
-```
+```python
+# Start long-running task in background
+spawn(
+    task="Compile the project and run all tests",
+    label="build-and-test",
+    callback=notify_user_on_completion
+)
 
-## Async Callbacks
-
-For async operations, callbacks notify completion:
-
-```
-callback := func(ctx, result) {
-    // Handle completion
-    // Log result
-    // Maybe notify user
-}
-
-manager.Spawn(ctx, task, label, channel, chatID, callback)
+# Continue with other work immediately
+message("Build started in background. I'll let you know when it's done.")
 ```
 
-The callback runs when the subagent finishes, regardless of success or failure.
+### Example 3: Subtask delegation
 
-## Error Handling
+```python
+# Break complex task into subtasks
+sections = ["introduction", "methods", "results", "conclusion"]
 
-### Task Failure
-```
-if err != nil:
-    task.Status = "failed"
-    task.Result = "Error: connection timeout"
-    result.IsError = true
-```
-
-The main agent receives the error and can decide how to handle it.
-
-### Cancellation
-```
-if ctx.Cancelled():
-    task.Status = "cancelled"
-    task.Result = "Task cancelled during execution"
+for section in sections:
+    result = subagent(
+        task=f"Write the {section} section based on the research notes",
+        label=f"write-{section}"
+    )
+    document.add_section(section, result.content)
 ```
 
-Subagents respect context cancellation for graceful shutdown.
+### Example 4: Error recovery
 
-### Timeout
-Subagent execution should have timeouts:
+```python
+result = subagent(task="Fetch data from API", label="api-fetch")
+
+if result.is_error:
+    # Try fallback
+    result = subagent(
+        task="Fetch data from backup source",
+        label="backup-fetch"
+    )
+    
+    if result.is_error:
+        message("Unable to fetch data from any source. Please check connectivity.")
+        return
+
+process_data(result.content)
 ```
-ctx, cancel := context.WithTimeout(background, 120*time.Second)
-defer cancel()
-runSubagent(ctx, task)
-```
 
-## When to Use Subagents
+## Best practices
 
-### Good Use Cases
-- **Parallel research**: "Look up X, Y, and Z simultaneously"
-- **Background tasks**: "Compile this project and let me know when done"
-- **Independent subtasks**: "Generate these 5 reports"
-- **Long-running operations**: "Download and process this dataset"
+### When to use subagents
 
-### Bad Use Cases
-- **Simple operations**: Don't spawn a subagent to read one file
-- **Highly dependent tasks**: If B needs A's result, just do them sequentially
-- **User-interactive tasks**: Subagents shouldn't ask questions
-- **Critical path work**: If the user is waiting, sync is usually better
+**Good use cases:**
+- Parallel research ("Look up X, Y, and Z simultaneously")
+- Background tasks ("Compile and let me know when done")
+- Independent subtasks ("Generate these 5 reports")
+- Long-running operations ("Download and process this dataset")
 
-## Subagent vs Main Agent
+**Bad use cases:**
+- Simple operations (don't spawn to read one file)
+- Highly dependent tasks (if B needs A's result, do them sequentially)
+- User-interactive tasks (subagents shouldn't ask questions)
+- Critical path work (if user is waiting, sync is usually better)
+
+### Task clarity
+
+- **Be specific**: Include exactly what output you need
+- **Set scope**: Define boundaries of the task
+- **Specify format**: Tell subagent how to structure the result
+
+### Resource management
+
+- **Don't over-parallelize**: 10 subagents = 10 concurrent LLM calls
+- **Set timeouts**: Prevent stuck subagents
+- **Limit iterations**: Subagents have max iteration limits (typically 10)
+
+### Subagent limitations
 
 | Aspect | Main Agent | Subagent |
 |--------|------------|----------|
-| System prompt | Full (identity, memory, skills) | Minimal (task focus) |
+| System prompt | Full (identity, memory) | Minimal (task focus) |
 | Session history | Yes | No |
-| Memory access | Yes | Can read, shouldn't write |
-| Spawning | Can spawn subagents | Cannot spawn (prevents recursion) |
-| User interaction | Primary | Via message tool only |
-| Lifetime | Long-running | Task completion |
+| Memory access | Read/write | Read only |
+| Spawning | Can spawn | Cannot spawn (no recursion) |
+| User interaction | Direct | Via message tool only |
 
-## Communication Patterns
+## Requirements
 
-### Subagent → User (via message tool)
-```
-Subagent uses message(channel, chatID, "Progress update...")
-→ User receives update directly
-```
+### Task structure
 
-### Subagent → Main Agent (via bus)
-```
-Subagent completes
-→ PublishInbound to "system" channel
-→ Main agent's processSystemMessage handles it
-```
-
-### Main Agent Decision
-The main agent decides whether to:
-- Forward result to user
-- Process result further
-- Just log and ignore
-
-## Best Practices
-
-### 1. Clear Task Descriptions
-```
-Good: "Search for Python async patterns and summarize the top 3 approaches"
-Bad:  "Look into Python stuff"
+```python
+SubagentTask {
+    id: str           # Unique identifier
+    task: str         # Task description
+    label: str        # Human-readable label
+    origin_channel: str  # Where to send results
+    origin_chat_id: str  # Who to notify
+    status: str       # pending | running | completed | failed
+    result: str       # Task output
+    created: int      # Timestamp
+}
 ```
 
-### 2. Appropriate Labels
-```
-Good: "python-async-research"
-Bad:  "task1"
+### Result structure
+
+```python
+SubagentResult {
+    content: str      # Task output
+    is_error: bool    # Whether task failed
+    iterations: int   # How many loop iterations used
+    label: str        # Task label
+}
 ```
 
-### 3. Reasonable Scope
-One subagent = one focused task. Don't overload.
+### Execution environment
 
-### 4. Handle Failures
-Always have a plan for when subagents fail:
-```
-if result.IsError:
-    "I encountered an error with that research. Let me try a different approach..."
-```
+Subagents receive:
+- Minimal system prompt (task-focused)
+- The task as user message
+- Access to tools (except spawn/subagent)
+- Iteration limit (typically 10)
 
-### 5. Don't Over-Parallelize
-Spawning 10 subagents creates 10 concurrent LLM calls. Be mindful of rate limits and costs.
+### Dependencies
+
+- Task queue or threading for async execution
+- Message bus for result delivery
+- Tool registry (shared with main agent)
+- LLM API access

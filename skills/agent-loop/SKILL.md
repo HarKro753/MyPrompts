@@ -5,155 +5,175 @@ description: The core agentic loop pattern - how an AI agent processes messages,
 
 # The Agent Loop
 
-This skill describes the fundamental execution pattern of an AI agent: the iterative loop that transforms user requests into completed tasks through reasoning and tool use.
+The fundamental execution pattern of an AI agent: an iterative loop that transforms user requests into completed tasks through reasoning and tool use.
 
-## Core Concept
+## Quick start
 
-An agent is not just an LLM - it's an **LLM in a loop with tools**. The agent loop is the heartbeat that drives autonomous behavior:
+The simplest agent loop:
 
 ```
-User Message -> Build Context -> LLM Call -> Tool Execution -> Loop or Respond
+while true:
+    message = receive_input()
+    context = build_context(system_prompt, memory, history, message, tools)
+    response = call_llm(context)
+
+    if response.has_tool_calls:
+        results = execute_tools(response.tool_calls)
+        add_to_context(response, results)
+        continue  # Loop again
+    else:
+        send_to_user(response.text)
+        break  # Done
 ```
 
-## The Basic Loop Structure
+## Instructions
 
-### Step 1: Receive Message
+When implementing or debugging an agent loop, follow these steps:
 
-The agent receives input from some channel (CLI, chat, API, scheduled trigger).
+### Step 1: Receive the message
 
-### Step 2: Build Context
+Capture input from any channel (CLI, chat, API, webhook, cron trigger).
 
-Assemble everything the LLM needs:
+### Step 2: Build the context
 
-- **System prompt**: Identity, capabilities, rules
-- **Memory**: Persistent facts and recent notes
-- **Session history**: Previous messages in this conversation
-- **Current message**: What the user just said
-- **Tool definitions**: What actions are available
+Assemble everything the LLM needs in this order:
+
+1. **System prompt** - Identity, capabilities, rules
+2. **Memory** - Persistent facts from MEMORY.md
+3. **Session history** - Previous messages in this conversation
+4. **Current message** - What the user just said
+5. **Tool definitions** - Available actions (JSON schemas)
 
 ### Step 3: Call the LLM
 
-Send the assembled context to the language model. The LLM can respond in two ways:
+Send context to the language model. The LLM responds with either:
 
-- **Direct answer**: Text response, no tools needed
-- **Tool calls**: Requests to execute one or more tools
+- **Direct answer** - Text response, no tools needed
+- **Tool calls** - Requests to execute one or more tools
 
-### Step 4: Handle Response
+### Step 4: Handle the response
 
 **If direct answer:**
 
-- Save to session history
-- Return response to user
-- Loop ends
+```
+save_to_history(response)
+return_to_user(response.text)
+# Loop ends
+```
 
 **If tool calls:**
 
-- Execute each requested tool
-- Collect results
-- Add assistant message (with tool calls) to context
-- Add tool results to context
-- Go back to Step 3 (call LLM again)
+```
+for each tool_call in response.tool_calls:
+    result = execute_tool(tool_call.name, tool_call.arguments)
+    add_tool_result_to_context(tool_call.id, result)
 
-### Step 5: Iterate Until Done
+add_assistant_message_to_context(response)
+goto Step 3  # Call LLM again with tool results
+```
 
-The loop continues until:
+### Step 5: Iterate safely
 
-- LLM gives a direct answer (no tool calls)
-- Maximum iterations reached (safety limit)
-- Error occurs
-- Context cancelled (shutdown)
+Continue looping until:
 
-## Message Flow Visualization
+- LLM gives a direct answer (success)
+- Maximum iterations reached (safety limit, typically 10-20)
+- Error occurs (handle gracefully)
+- Context cancelled (shutdown signal)
+
+## Examples
+
+### Example 1: Simple file read task
 
 ```
+User: "What's in config.json?"
+
 Iteration 1:
-  [system prompt] + [memory] + [history] + [user message]
-  -> LLM returns: tool_calls: [read_file("config.json")]
+  Context: [system] + [user: "What's in config.json?"]
+  LLM returns: tool_call(read_file, {path: "config.json"})
 
 Iteration 2:
-  [previous context] + [assistant: tool_calls] + [tool: file contents]
-  -> LLM returns: tool_calls: [edit_file("config.json", ...)]
+  Context: [previous] + [assistant: tool_call] + [tool: "{api_key: ...}"]
+  LLM returns: "Your config.json contains an API key setting..."
 
-Iteration 3:
-  [previous context] + [assistant: tool_calls] + [tool: "file edited"]
-  -> LLM returns: "I've updated the configuration file."
-
-Loop ends, response returned to user.
+Loop ends, response sent to user.
 ```
 
-## Context Building
+### Example 2: Multi-step task
 
-The system prompt is assembled from multiple sources:
+```
+User: "Update the timeout to 30 seconds in config.json"
 
-1. **Identity section**: Who the agent is, current time, workspace location
-2. **Bootstrap files**: SOUL.md, USER.md, IDENTITY.md, AGENT.md
-3. **Skills summary**: Available skills and how to invoke them
-4. **Memory context**: Long-term memory + recent daily notes
-5. **Tools section**: List of available tools with descriptions
-6. **Session info**: Current channel and chat ID
+Iteration 1:
+  LLM: tool_call(read_file, {path: "config.json"})
 
-This layered approach allows customization at multiple levels without code changes.
+Iteration 2:
+  Tool result: {timeout: 10, ...}
+  LLM: tool_call(edit_file, {path: "config.json", old: "timeout: 10", new: "timeout: 30"})
 
-## Session Management
+Iteration 3:
+  Tool result: "File updated successfully"
+  LLM: "I've updated the timeout from 10 to 30 seconds in config.json."
 
-Each conversation has a **session key** that identifies it. The session stores:
+Loop ends after 3 iterations.
+```
 
-- Message history (user, assistant, tool messages)
-- Conversation summary (when history gets too long)
+### Example 3: Error handling
 
-### Summarization
+```
+User: "Read secret.txt"
 
-When session history grows beyond thresholds:
+Iteration 1:
+  LLM: tool_call(read_file, {path: "secret.txt"})
 
-1. Take older messages (keeping recent ones)
-2. Ask LLM to summarize them
-3. Store summary separately
-4. Truncate history
-5. Future contexts include: summary + recent history
+Iteration 2:
+  Tool result: {error: "File not found"}
+  LLM: "I couldn't find secret.txt. Would you like me to search for it?"
 
-This prevents context overflow while maintaining continuity.
+Loop ends, error handled gracefully.
+```
 
-## Iteration Safety
+## Best practices
 
-### Maximum Iterations
+### Do:
 
-Always set a limit (e.g., 10-20 iterations) to prevent:
+- **Set iteration limits** - Prevent infinite loops (10-20 max iterations)
+- **Preserve tool call IDs** - Link tool results to their calls
+- **Handle errors gracefully** - Return errors to LLM, let it decide next step
+- **Check for cancellation** - Respect shutdown signals between iterations
+- **Log each iteration** - Track tool calls and results for debugging
 
-- Infinite loops from confused LLM
-- Runaway costs from repeated API calls
-- Stuck agents that never complete
+### Don't:
 
-### Handling Tool Errors
+- **Skip the tool result step** - LLM needs to see what tools returned
+- **Ignore maximum iterations** - Runaway loops waste money and time
+- **Corrupt session state on error** - Keep history consistent
+- **Block on long operations** - Use async tools for slow tasks
 
-When a tool fails:
+### Common pitfalls:
 
-- Return error message as tool result
-- Let LLM decide how to proceed
-- LLM might retry, try alternative, or report failure to user
+- **Missing tool call ID** - Causes "orphaned tool result" errors
+- **Context overflow** - Summarize history before it's too large
+- **Tool execution order** - Execute all tool calls before next LLM call
 
-### Context Cancellation
+## Requirements
 
-Respect shutdown signals:
+To implement an agent loop, you need:
 
-- Check for cancellation before each iteration
-- Clean up gracefully when stopped
-- Don't leave partial state
+- **LLM API access** - OpenAI, Anthropic, or compatible provider
+- **Tool registry** - Collection of available tools with schemas
+- **Session storage** - Persistent storage for conversation history
+- **Message bus** (optional) - For multi-channel communication
 
-## Tool Call Execution
+### Dependencies:
 
-For each tool call in the LLM response:
+- HTTP client for LLM API calls
+- JSON parser for tool arguments
+- Context/cancellation support for graceful shutdown
 
-1. **Parse arguments**: Extract tool name and parameters
-2. **Find tool**: Look up in tool registry
-3. **Set context**: Provide channel/chat info if needed
-4. **Execute**: Run the tool with arguments
-5. **Handle result**:
-   - `ForLLM`: Content that goes back to the LLM
-   - `ForUser`: Content shown directly to user (optional)
-   - `Silent`: Don't show anything to user
-   - `Async`: Tool continues in background
+## Reference
 
-## The Message Types
+### Message types
 
 | Role        | Purpose                            |
 | ----------- | ---------------------------------- |
@@ -162,45 +182,27 @@ For each tool call in the LLM response:
 | `assistant` | LLM responses (text or tool calls) |
 | `tool`      | Results from tool execution        |
 
-The conversation alternates: user -> assistant -> (tool -> assistant)\* -> user
+### Tool result structure
 
-## Subagents
+```
+ToolResult {
+  ForLLM:   string  // Content sent back to LLM (required)
+  ForUser:  string  // Content shown to user (optional)
+  Silent:   bool    // Don't show anything to user
+  IsError:  bool    // Indicates failure
+  Async:    bool    // Operation continues in background
+}
+```
 
-The loop can spawn **subagents** - independent agent instances that:
+### Context assembly order
 
-- Run their own loop with their own tools
-- Execute tasks asynchronously
-- Report results back to main agent
-
-This enables parallel task execution and delegation.
-
-## Process Options
-
-The loop can be configured per-invocation:
-
-- **SessionKey**: Which session to use
-- **EnableSummary**: Whether to trigger summarization
-- **NoHistory**: Run without loading history (for heartbeats)
-- **SendResponse**: Whether to push response to message bus
-
-## The Heartbeat Pattern
-
-Some agents run on schedules (cron). The heartbeat loop:
-
-- Runs without session history
-- Checks for triggers/conditions
-- Takes actions if needed
-- Doesn't accumulate context
-
-This keeps scheduled runs lightweight and independent.
-
-## Error Recovery
-
-When the LLM call fails:
-
-1. Log the error with context
-2. Return error to caller
-3. Don't corrupt session state
-4. Allow retry from caller
-
-The loop should be resilient - individual failures shouldn't break the agent.
+```
+1. System prompt (identity, time, workspace, rules)
+2. Bootstrap files (SOUL.md, USER.md, IDENTITY.md, AGENT.md)
+3. Skills summary (available skills)
+4. Memory context (MEMORY.md + recent daily notes)
+5. Tools section (available tools)
+6. Session summary (if history was truncated)
+7. Recent history (last N messages)
+8. Current user message
+```
