@@ -1,6 +1,6 @@
 ---
 name: session-management
-description: How agents maintain conversation continuity - history storage, context summarization, and session persistence across restarts
+description: How agents maintain conversation continuity - history storage, context summarization, and session persistence across restarts. Use when implementing session handling, debugging context overflow, or building conversation memory.
 ---
 
 # Session Management

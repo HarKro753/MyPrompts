@@ -1,6 +1,6 @@
 ---
 name: google-travel-apis
-description: How to use Google Routes API and Places API for travel agent functionality - finding places, planning routes, and building itineraries
+description: How to use Google Routes API and Places API for travel agent functionality - finding places, planning routes, and building itineraries. Use when building travel agents, planning routes, finding hotels/restaurants, or when the user mentions Google APIs, directions, or place searches.
 ---
 
 # Google Travel APIs Skill

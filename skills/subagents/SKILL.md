@@ -1,6 +1,6 @@
 ---
 name: subagents
-description: How to spawn independent agent instances for parallel task execution - async vs sync patterns, task delegation, and result handling
+description: How to spawn independent agent instances for parallel task execution - async vs sync patterns, task delegation, and result handling. Use when implementing subagent systems, parallelizing tasks, or designing multi-agent workflows.
 ---
 
 # Subagents

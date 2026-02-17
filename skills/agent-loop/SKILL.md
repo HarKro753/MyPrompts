@@ -1,6 +1,6 @@
 ---
 name: agent-loop
-description: The core agentic loop pattern - how an AI agent processes messages, calls tools, and iterates until task completion
+description: The core agentic loop pattern - how an AI agent processes messages, calls tools, and iterates until task completion. Use when building agents, debugging agent behavior, or understanding how the tool execution cycle works.
 ---
 
 # The Agent Loop

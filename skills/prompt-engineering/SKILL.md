@@ -1,6 +1,6 @@
 ---
 name: prompt-engineering
-description: Comprehensive prompt engineering knowledge for crafting, optimizing, and debugging prompts for any LLM application.
+description: Comprehensive prompt engineering knowledge for crafting, optimizing, and debugging prompts for any LLM application. Use when writing prompts, debugging LLM outputs, implementing RAG systems, or building AI agents.
 ---
 
 # Prompt Engineering Master Skill

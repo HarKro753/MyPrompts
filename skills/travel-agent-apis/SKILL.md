@@ -1,6 +1,6 @@
 ---
 name: travel-agent-apis
-description: APIs for building an AI travel agent - accommodation (Booking.com, vacation rentals), routes, places, and how to combine them
+description: APIs for building an AI travel agent - accommodation (Booking.com, vacation rentals), routes, places, and how to combine them. Use when building travel booking systems, integrating with Booking.com API, or when the user asks about travel APIs.
 ---
 
 # Travel Agent APIs Skill

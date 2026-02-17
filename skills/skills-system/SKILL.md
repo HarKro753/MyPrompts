@@ -1,6 +1,6 @@
 ---
 name: skills-system
-description: How skills extend agent capabilities through markdown files - the loader hierarchy, skill structure, and on-demand loading pattern
+description: How skills extend agent capabilities through markdown files - the loader hierarchy, skill structure, and on-demand loading pattern. Use when creating skills, debugging skill loading, or understanding how agents learn new capabilities.
 ---
 
 # The Skills System

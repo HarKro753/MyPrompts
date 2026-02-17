@@ -1,6 +1,6 @@
 ---
 name: agent-tools
-description: How to design and implement tools for agentic systems - the interface between AI reasoning and real-world actions
+description: How to design and implement tools for agentic systems - the interface between AI reasoning and real-world actions. Use when creating new tools, designing tool interfaces, or troubleshooting tool execution.
 ---
 
 # Agent Tools

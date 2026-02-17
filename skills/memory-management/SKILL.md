@@ -1,6 +1,6 @@
 ---
 name: memory-management
-description: The workspace file system that defines an agent's identity, personality, user knowledge, and persistent memory
+description: The workspace file system that defines an agent's identity, personality, user knowledge, and persistent memory. Use when setting up agent identity, configuring bootstrap files, or implementing persistent memory systems.
 ---
 
 # Memory Management: The Workspace File System

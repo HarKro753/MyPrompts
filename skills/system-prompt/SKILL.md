@@ -1,6 +1,6 @@
 ---
 name: system-prompt
-description: How to design effective system prompts for agentic AI - what to include, what to avoid, and how to structure for reliable tool use
+description: How to design effective system prompts for agentic AI - what to include, what to avoid, and how to structure for reliable tool use. Use when writing system prompts, debugging agent behavior, or setting up new AI assistants.
 ---
 
 # System Prompt Design
