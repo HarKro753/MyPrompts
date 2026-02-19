@@ -22,12 +22,31 @@ When working with AI coding assistants (Claude, GPT, etc.), these prompts establ
 ├── swift/
 │   ├── CLAUDE.md          # Swift/SwiftUI development guidelines
 │   └── skills/            # Swift-specific skills (coming soon)
-└── ts/
-    ├── CLAUDE.md          # TypeScript/React/Next.js guidelines
-    └── skills/            # Agentic development skills
-        ├── agent-loops/           # ReAct patterns, reasoning loops
-        ├── function-calling/      # LLM tool definitions, structured output
-        └── multi-agent-orchestration/  # Multi-agent coordination
+├── ts/
+│   ├── CLAUDE.md          # TypeScript/React/Next.js guidelines
+│   └── skills/            # Agentic development skills
+│       ├── agent-loops/           # ReAct patterns, reasoning loops
+│       ├── function-calling/      # LLM tool definitions, structured output
+│       └── multi-agent-orchestration/  # Multi-agent coordination
+├── agent-loop-skills/             # Agent loop skill set (derived from OpenClaw & OpenCode)
+│   ├── agent-loop/                # Core agentic loop pattern
+│   ├── agent-tools/               # Tool definition and execution
+│   ├── memory-management/         # Agent memory and context management
+│   ├── prompt-engineering/        # Prompt design patterns
+│   ├── subagents/                 # Sub-agent orchestration
+│   ├── session-management/        # Session state and persistence
+│   ├── system-prompt/             # System prompt construction
+│   ├── skills-system/             # Skills loading and management
+│   ├── skill-writer/              # Authoring new skills
+│   ├── travel-agent-apis/         # Travel domain API integration
+│   └── google-travel-apis/        # Google Travel API patterns
+└── social-algorithm-skills/       # Social algorithm skill set (derived from X algorithm)
+    ├── x-algorithm-overview/      # X "For You" feed algorithm overview
+    ├── social-media-algorithm/    # Social media ranking patterns
+    ├── candidate-pipeline-framework/  # Candidate sourcing and pipeline design
+    ├── engagement-scoring-weights/    # Engagement scoring and signal weighting
+    ├── transformer-attention-masks/   # Transformer and attention mask patterns
+    └── skill-writer/              # Authoring new skills
 ```
 
 ## Language Guidelines
@@ -93,6 +112,32 @@ Coordination patterns for multiple agents:
 - Supervisor pattern
 - Conflict resolution
 - Agent communication bus
+
+## Agent Loop Skills
+
+The `agent-loop-skills/` directory contains a comprehensive skill set derived from the [OpenClaw](https://github.com/anthropics/claude-code) and [OpenCode](https://github.com/nichochar/open-code) projects. These skills capture the core patterns behind building interactive AI agents with tool use:
+
+- **Agent Loop** -- The fundamental execute-reason-act cycle that drives agentic behavior
+- **Agent Tools** -- Defining, registering, and executing tools within an agent context
+- **Memory Management** -- Context window strategies, summarization, and long-term recall
+- **Prompt Engineering** -- System prompt design, few-shot patterns, and instruction tuning
+- **Subagents** -- Spawning and coordinating child agents for parallel or specialized work
+- **Session Management** -- Persisting and resuming agent state across interactions
+- **System Prompt** -- Constructing effective system prompts with context injection
+- **Skills System** -- Dynamic skill loading and resolution at runtime
+- **Skill Writer** -- Patterns for authoring new reusable skills
+- **Travel Agent APIs / Google Travel APIs** -- Domain-specific API integration examples
+
+## Social Algorithm Skills
+
+The `social-algorithm-skills/` directory contains a skill set derived from the [X (Twitter) open-source recommendation algorithm](https://github.com/twitter/the-algorithm). These skills break down how large-scale social media feeds are ranked and served:
+
+- **X Algorithm Overview** -- End-to-end walkthrough of the "For You" feed: Home Mixer orchestration, Thunder real-time post store, Phoenix ML ranker, and Candidate Pipeline framework
+- **Social Media Algorithm** -- General social media ranking principles and feed construction
+- **Candidate Pipeline Framework** -- Reusable Source → Filter → Scorer → Ranker pipeline design
+- **Engagement Scoring Weights** -- Signal weighting (likes, retweets, replies, dwell time) and score aggregation
+- **Transformer Attention Masks** -- Grok-based transformer architecture, attention mask strategies, and ML ranking internals
+- **Skill Writer** -- Patterns for authoring new skills in this domain
 
 ## Usage
 
