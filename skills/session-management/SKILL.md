@@ -65,14 +65,14 @@ When history grows too large, summarize:
 def check_and_summarize(session: Session, max_messages: int = 20):
     if len(session.messages) <= max_messages:
         return
-    
+
     # Keep recent messages
     recent = session.messages[-4:]
     older = session.messages[:-4]
-    
+
     # Summarize older messages
     summary = llm.summarize(older)
-    
+
     # Update session
     session.summary = summary
     session.messages = recent
@@ -83,17 +83,17 @@ def check_and_summarize(session: Session, max_messages: int = 20):
 ```python
 def build_context(session: Session, system_prompt: str) -> list:
     messages = [{"role": "system", "content": system_prompt}]
-    
+
     # Add summary if exists
     if session.summary:
         messages.append({
-            "role": "system", 
+            "role": "system",
             "content": f"## Previous Conversation Summary\n{session.summary}"
         })
-    
+
     # Add recent history
     messages.extend(session.get_history())
-    
+
     return messages
 ```
 
@@ -103,7 +103,7 @@ def build_context(session: Session, system_prompt: str) -> list:
 def save(session: Session, path: str):
     filename = session.key.replace(":", "_") + ".json"
     filepath = os.path.join(path, filename)
-    
+
     with open(filepath, 'w') as f:
         json.dump({
             "key": session.key,
