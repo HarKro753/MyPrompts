@@ -417,3 +417,67 @@ See [reference.md](reference.md) for the complete list of all subscribable event
 - Ensure it's returned under the `tool` key in the hooks object
 - Verify tool names don't accidentally collide with built-in tools
 - Check that `tool()` helper is imported from `@opencode-ai/plugin`
+
+## ⚠️ Known Pitfalls (learned in production)
+
+### Self-import crash when building a plugin as an npm package
+
+**Symptom:** `ResolveMessage: Cannot find package '<your-package-name>'` on OpenCode startup.
+
+**Cause:** When developing a plugin *as a publishable npm package*, if you have a `.opencode/plugins/` file that imports from the package by name (e.g. `export { MyPlugin } from "my-plugin-package"`), OpenCode will try to resolve it at startup — but the package isn't installed in `node_modules` because you're building it, not consuming it.
+
+**Fix:** Use a relative import in the local plugin file instead:
+
+```ts
+// ❌ Crashes — package not installed yet
+export { MyPlugin } from "my-plugin-package";
+
+// ✅ Works — relative import resolves directly
+export { MyPlugin } from "../../src/index.js";
+```
+
+**Alternative:** Delete `.opencode/plugins/` entirely from the repo root while running `opencode run` to build the project. The agent doesn't need to load the plugin to build and test it — that folder is only for end users.
+
+---
+
+### OpenCode hangs at startup when `.opencode/plugins/` imports unbuilt TypeScript
+
+**Symptom:** OpenCode starts (logs show plugin loading), then silently hangs with no LLM activity.
+
+**Cause:** A plugin file imports from `../../src/index.js` but the `.js` file doesn't exist yet (TypeScript hasn't been compiled). Bun may hang trying to resolve the import.
+
+**Fix:** Either:
+1. Build the project first (`npm run build`) before running OpenCode in the same directory
+2. Use `.ts` extension in the import: `export { MyPlugin } from "../../src/index.ts"` (Bun handles `.ts` directly)
+3. Remove the `.opencode/plugins/` folder during the build/development session
+
+---
+
+### Stale OpenCode processes pile up
+
+**Symptom:** OpenCode sessions become slow to start, high memory usage, LLM calls don't fire.
+
+**Cause:** Each `opencode run` spawns a process. Timed-out or killed sessions may leave zombie processes running.
+
+**Check and clean up:**
+
+```bash
+ps aux | grep opencode | grep -v grep
+# Kill any PIDs from old sessions that are no longer needed
+kill <pid1> <pid2> ...
+```
+
+---
+
+### Agent notification: use direct messaging, not only system events
+
+When a coding agent finishes a long task, always include a direct user notification — not just `openclaw system event`. The system event only wakes the orchestrator agent when it's triggered; the user won't get a push notification.
+
+```bash
+# ✅ Direct Telegram notification (user gets pinged immediately)
+openclaw message send --target <user_telegram_id> --channel telegram \
+  --message "✅ Done: [repo] pushed to main — ready for review"
+
+# ⚠️ system event alone — only reaches orchestrator when session is triggered
+openclaw system event --text "Done: ..." --mode now
+```
